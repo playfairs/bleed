@@ -4,7 +4,14 @@ from ..services.cache import cache
 from var.config import CONFIG
 from loguru import logger
 from aiohttp import ClientSession
-from lib.managers.trackcord import TrackcordUser, Trackcord, Messages
+
+# Make trackcord imports optional
+try:
+    from lib.managers.trackcord import TrackcordUser, Trackcord, Messages
+    TRACKCORD_AVAILABLE = True
+except ImportError:
+    TRACKCORD_AVAILABLE = False
+    logger.warning("Trackcord module not found. Some badge functionality may be limited.")
 
 DPY_MAP = {
     "hypesquad_balance": "hypesquad_house_3",
@@ -34,34 +41,44 @@ def member_badges(self: Member, as_string: Optional[bool] = False, delimiter: Op
     
 @cache(ttl = 300, key = "trackcord:{self.id}:{raw}")
 async def trackcord(self: Union[User, Member], raw: Optional[bool] = False):
-    return await Trackcord().get(self.id, raw)
+    if TRACKCORD_AVAILABLE:
+        return await Trackcord().get(self.id, raw)
+    else:
+        logger.warning("Trackcord module not available. Cannot fetch trackcord data.")
+        return None
 
 @cache(ttl = 300, key = "messages:{self.id}:{raw}")
 async def messages(self: Union[User, Member], raw: Optional[bool] = False):
-    return await Trackcord().messages(self.id, raw)
+    if TRACKCORD_AVAILABLE:
+        return await Trackcord().messages(self.id, raw)
+    else:
+        logger.warning("Trackcord module not available. Cannot fetch messages data.")
+        return None
 
 async def trackcord_badges(self: Union[User, Member]) -> str:
-    try:
-        data = await self.trackcord()
-    except Exception as e:
-        logger.info(f"failed to get badges due to {e}")
-        return ""
-    badges = ""
-    if self.public_flags.verified_bot:
-        badges += f"{CONFIG['emojis']['badges']['verified_app']} "
+    if TRACKCORD_AVAILABLE:
+        try:
+            data = await self.trackcord()
+        except Exception as e:
+            logger.info(f"failed to get badges due to {e}")
+            return ""
+        badges = ""
+        if self.public_flags.verified_bot:
+            badges += f"{CONFIG['emojis']['badges']['verified_app']} "
+        else:
+            if self.bot:
+                badges += f"{CONFIG['emojis']['badges']['app']} "
+        if isinstance(self, Member):
+            if self.id == self.guild.owner_id:
+                badges += f"{CONFIG['emojis']['badges']['owner']} "
+        for badge in data.badges:
+            name = badge.id.replace("guild_booster_lvl", "boost").replace("premium", "nitro").replace("quest_completed", "quest").replace("legacy_username", "pomelo")
+            if emoji := CONFIG["emojis"]["badges"].get(name):
+                badges += f"{emoji} "
+        return badges
     else:
-        if self.bot:
-            badges += f"{CONFIG['emojis']['badges']['app']} "
-    if isinstance(self, Member):
-        if self.id == self.guild.owner_id:
-            badges += f"{CONFIG['emojis']['badges']['owner']} "
-    for badge in data.badges:
-        name = badge.id.replace("guild_booster_lvl", "boost").replace("premium", "nitro").replace("quest_completed", "quest").replace("legacy_username", "pomelo")
-        if emoji := CONFIG["emojis"]["badges"].get(name):
-            badges += f"{emoji} "
-    return badges
-
-
+        logger.warning("Trackcord module not available. Cannot fetch trackcord badges.")
+        return ""
 
 @cache(ttl = 300, key = "badges:{self.id}")
 async def worker_badges(self: Union[User, Member]):
@@ -94,9 +111,10 @@ User.badges = user_badges
 Member.badges = member_badges
 User.worker_badges = worker_badges
 Member.worker_badges = worker_badges
-User.trackcord = trackcord
-Member.trackcord = trackcord
-User.messages = messages
-Member.messages = messages
-User.trackcord_badges = trackcord_badges
-Member.trackcord_badges = trackcord_badges
+if TRACKCORD_AVAILABLE:
+    User.trackcord = trackcord
+    Member.trackcord = trackcord
+    User.messages = messages
+    Member.messages = messages
+    User.trackcord_badges = trackcord_badges
+    Member.trackcord_badges = trackcord_badges

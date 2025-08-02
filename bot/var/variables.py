@@ -8,16 +8,15 @@ DEFAULT_EMOJIS = re.compile(
     r"[\U0001F300-\U0001F5FF]|[\U0001F600-\U0001F64F]|[\U0001F680-\U0001F6FF]|[\U0001F700-\U0001F77F]|[\U0001F780-\U0001F7FF]|[\U0001F800-\U0001F8FF]|[\U0001F900-\U0001F9FF]|[\U0001FA00-\U0001FA6F]|[\U0001FA70-\U0001FAFF]|[\U00002702-\U000027B0]|[\U000024C2-\U0001F251]|[\U0001F910-\U0001F9C0]|[\U0001F3A0-\U0001F3FF]"
 )
 
-YOUTUBE_WILDCARD = re.compile(r"""
-    (?x)                                                        # verbose mode
-    (?:\s*)                                                    # optional whitespace before the URL
-    (?:https?:\/\/)?                                           # optional scheme
+YOUTUBE_WILDCARD = re.compile(r"""(?x)                                              # verbose mode
+    \s*                                                      # optional whitespace before the URL
+    (?:https?:\/\/)?                                       # optional scheme
     (?:www\.)?(?:youtube\.com|youtu\.be|youtube-nocookie\.com)  # main YouTube domains
     (?:\/(?:watch\?v=|embed\/|v\/|shorts\/|e\/|live\/)?)?      # optional path indicators
-    ([\w-]{11})                                                 # video ID of 11 alphanumeric characters
-    (?:[&?][\w=]*)*                                             # optional query parameters
-    (?:[#\/]?|$)                                                # optional anchor or end of line
-    (?:\s*)                                                    # optional whitespace after the URL
+    ([\w-]{11})                                             # video ID of 11 alphanumeric characters
+    (?:[&?][\w=]*)*                                         # optional query parameters
+    (?:[#\/]?|$)                                            # optional anchor or end of line
+    \s*                                                      # optional whitespace after the URL
 """, re.IGNORECASE | re.MULTILINE)
 
 INSTAGRAM_POST = re.compile(r"(?:http\:|https\:)?\/\/(?:www\.)?instagram\.com\/(?:p|tv|reel)/[^\s]+")

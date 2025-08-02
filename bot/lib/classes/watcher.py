@@ -208,30 +208,43 @@ class RebootRunner:
 
     async def start(self):
         """Checks for a user-specified event loop to start on, otherwise uses current running loop."""
-        _check = False
         if self.started is True:
             return
-        while not self.dir_exists():
-            if not _check:
-                logger.error(
-                    f"One of the pathes dont not exist. {self.get_path()}"
-                )
-                _check = True
+            
+        # Try to create missing directories
+        if not self.dir_exists():
+            paths = [self.path] if isinstance(self.path, str) else self.path
+            for path in paths:
+                full_path = Path(Path.cwd() / path)
+                if not full_path.exists():
+                    try:
+                        full_path.mkdir(parents=True, exist_ok=True)
+                        logger.warning(f"Created missing directory: {full_path}")
+                    except Exception as e:
+                        logger.error(f"Failed to create directory {full_path}: {e}")
+                        continue
 
-        else:
-            logger.info(f"Found {self.CBOLD}{self.humanize_paths()}{self.CEND}!")
-            if self.preload:
-                await self._preload()
+        if not self.dir_exists():
+            logger.error(f"One or more required directories are missing: {self.path}")
+            return
 
-            if self.check_debug():
-                if self.loop is None:
-                    self.loop = asyncio.get_event_loop()
+        logger.info(f"Found {self.CBOLD}{self.humanize_paths()}{self.CEND}!")
+        if self.preload:
+            await self._preload()
 
-                logger.info(
-                    f"Watching for file changes in {self.CBOLD}{self.humanize_paths()}{self.CEND}..."
-                )
+        if self.check_debug():
+            if self.loop is None:
+                self.loop = asyncio.get_event_loop()
+
+            logger.info(
+                f"Watching for file changes in {self.CBOLD}{self.humanize_paths()}{self.CEND}..."
+            )
+            try:
                 self.loop.create_task(self._start())
-        self.started = True
+                self.started = True
+            except Exception as e:
+                logger.error(f"Failed to start file watcher: {e}")
+                self.started = False
 
     async def commit(self) -> str:
         process = await asyncio.create_subprocess_shell(

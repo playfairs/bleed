@@ -6,8 +6,8 @@ from pydantic import BaseModel, create_model
 from yarl import URL
 from var.config import CONFIG as config
 from typing import Any, Dict, Optional, Union
-from aiohttpn import ClientSession as DefaultClientSession
-from aiohttpn import ClientTimeout
+from aiohttp import ClientSession as DefaultClientSession
+from aiohttp import ClientTimeout
 from munch import DefaultMunch
 
 
@@ -66,6 +66,8 @@ class CS(DefaultClientSession):
             return munch
 
         return response
+
+
 def create_model_from_dict(data: Union[dict, list]) -> BaseModel:
     if "data" in data:
         data = data["data"]

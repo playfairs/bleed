@@ -103,7 +103,14 @@ class Database:
         except Exception:
             await asyncio.to_thread(self.create_database, database_name, username, password, host, int(port))
             self.pool = await self.create()
-        await self.execute("""CREATE EXTENSION IF NOT EXISTS timescaledb;""")
+        
+        # Try to enable TimescaleDB extension, but don't fail if it's not available
+        try:
+            await self.execute("""CREATE EXTENSION IF NOT EXISTS timescaledb;""")
+        except Exception as e:
+            log.warning(f"Could not enable TimescaleDB extension: {e}")
+            log.warning("TimescaleDB functionality will be disabled. Some time-series features may not work.")
+            
         return self.pool
 
     async def close(self) -> None:

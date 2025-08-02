@@ -2,6 +2,7 @@ from .patch.context import Context, Cache
 import discord
 import tuuid
 import os
+import psutil
 from discord.ext import commands
 from asyncio import ensure_future, gather, sleep
 from discord import Message, Guild, Intents, Client, Message
@@ -17,7 +18,12 @@ from .error_handler import Errors
 from .classes import Database, RivalRedis, Snipe
 from .classes import converters
 from typing_extensions import NoReturn
-from .worker import start_dask, close_dask
+try:
+    from .worker.dask import start_dask, close_dask
+    DASK_AVAILABLE = True
+except ImportError:
+    DASK_AVAILABLE = False
+    logger.warning("Dask not available. Some features may be limited.")
 from .services import setup
 import traceback
 from .classes import Script, Level
@@ -109,6 +115,16 @@ class Bot(DiscordBot):
         self.loaded = False
         self.command_dict = None
         self.filled = False
+        
+        # Create required directories if they don't exist
+        required_dirs = ["ext", "etc", "owner", "vip"]
+        for dir_name in required_dirs:
+            dir_path = os.path.join(os.getcwd(), dir_name)
+            if not os.path.exists(dir_path):
+                os.makedirs(dir_path, exist_ok=True)
+                logger.warning(f"Created missing directory: {dir_path}")
+        
+        # Initialize RebootRunner with the required paths
         self.runners = RebootRunner(self, ["ext", "etc", "owner", "vip"])
         self.support_server = ""
         self._closing_task = None
@@ -119,16 +135,35 @@ class Bot(DiscordBot):
         # self.paginators = Paginate(self)
 
     async def close(self: "Bot"):
-        await close_dask()
+        if hasattr(self, 'dask') and self.dask is not None:
+            try:
+                await close_dask()
+            except Exception as e:
+                logger.error(f"Error closing Dask worker: {e}")
         await self.db.close()
         try:
             await super().close()
-        except Exception:
-            pass
+        except Exception as e:
+            logger.error(f"Error during bot close: {e}")
         os._exit(0)
 
     async def setup_dask(self: "Bot"):
-        self.dask = await start_dask(self, "127.0.0.1:8787")
+        if not DASK_AVAILABLE:
+            logger.warning("Dask is not available. Skipping Dask worker setup.")
+            self.dask = None
+            return
+            
+        try:
+            self.dask = await start_dask(self, "127.0.0.1:8787")
+            logger.info("Dask worker started successfully")
+        except (psutil.AccessDenied, PermissionError) as e:
+            logger.warning(f"Insufficient permissions to start Dask worker: {e}")
+            logger.warning("Dask functionality will be disabled. Some features may not work as expected.")
+            self.dask = None
+        except Exception as e:
+            logger.error(f"Failed to start Dask worker: {e}")
+            logger.warning("Dask functionality will be disabled. Some features may not work as expected.")
+            self.dask = None
 
     async def guild_count(self: "Bot") -> int:
         return len(self.guilds)
@@ -218,9 +253,20 @@ class Bot(DiscordBot):
         await self.load_extension("jishaku")
         ensure_future(self.setup_dask())
         await self.db.connect()
-        await self.redis.from_url("redis://127.0.0.1:6379")
+        
+        # Make Redis connection optional
+        try:
+            await self.redis.from_url("redis://127.0.0.1:6379")
+            logger.success("Successfully connected to Redis")
+            redis_available = True
+        except Exception as e:
+            logger.warning(f"Could not connect to Redis: {e}")
+            logger.warning("Redis functionality will be disabled. Some features may not work as expected.")
+            redis_available = False
+        
+        # Initialize services with Redis if available, or None if not
         self.services = ServiceManager(
-            self.redis,
+            self.redis if redis_available else None,
             Credentials(
                 **{
                     "instagram": {
@@ -269,16 +315,74 @@ class Bot(DiscordBot):
 
     async def on_ready(self: "Bot"):
         try:
-            await self.setup_emojis()
-        except Exception:
-            pass
-        if not self.loaded:
-            await self.levels.setup(self)
-            await self.load_cogs()
-            await self.load_extension("lib.classes.web")
-            self.webserver = self.get_cog("WebServer")
-        if self.slow_chunking:
-            await self.slow_chunk()
+            logger.info("=== BOT STARTING UP ===")
+            logger.info(f"Logged in as {self.user} (ID: {self.user.id})")
+            logger.info(f"Connected to {len(self.guilds)} guilds")
+            
+            # Setup emojis
+            logger.info("Setting up emojis...")
+            try:
+                await self.setup_emojis()
+                logger.info("Emoji setup complete")
+            except Exception as e:
+                logger.error(f"Error in emoji setup: {e}")
+            
+            if not self.loaded:
+                # Setup levels
+                logger.info("Loading levels...")
+                try:
+                    await self.levels.setup(self)
+                    logger.info("Levels loaded successfully")
+                except Exception as e:
+                    logger.error(f"Error loading levels: {e}")
+                
+                # Load cogs
+                logger.info("Loading cogs...")
+                try:
+                    await self.load_cogs()
+                    logger.info("Cogs loaded successfully")
+                except Exception as e:
+                    logger.error(f"Error loading cogs: {e}")
+                
+                # Load WebServer
+                logger.info("Loading WebServer extension...")
+                try:
+                    await self.load_extension("lib.classes.web")
+                    self.webserver = self.get_cog("WebServer")
+                    logger.info("WebServer loaded successfully")
+                except Exception as e:
+                    logger.error(f"Error loading WebServer: {e}")
+            
+            # Handle slow chunking if enabled
+            if self.slow_chunking:
+                logger.info("Starting slow chunking...")
+                try:
+                    await self.slow_chunk()
+                    logger.info("Slow chunking completed")
+                except Exception as e:
+                    logger.error(f"Error during slow chunking: {e}")
+            
+            self.loaded = True
+            logger.info("=== BOT IS NOW READY ===")
+            
+            # Keep the bot running
+            while True:
+                try:
+                    await asyncio.sleep(3600)  # Sleep for 1 hour
+                except asyncio.CancelledError:
+                    break
+                except Exception as e:
+                    logger.error(f"Error in main loop: {e}")
+                    await asyncio.sleep(60)  # Wait a minute before continuing
+        except Exception as e:
+            logger.critical(f"FATAL ERROR in on_ready: {e}")
+            logger.exception(e)
+            # Try to restart the bot
+            try:
+                await self.close()
+            except:
+                pass
+            os._exit(1)
 
     async def load_cogs(self: "Bot") -> bool:
         if self.loaded is not False:
@@ -489,7 +593,7 @@ load_dotenv(verbose = True)"""
             value += f"\nCONFIG = {CONFIG}"
             file.write(value)
         logger.info("Successfully setup all Emojis and the configuration")
-        await self.close()
+        # Removed self.close() to prevent the bot from shutting down
 
     async def get_prefix(self: "Bot", message: Message):
         user_prefix = await self.db.fetchval(
@@ -516,58 +620,6 @@ load_dotenv(verbose = True)"""
             return when_mentioned_or(user_prefix)(self, message)
 
         return when_mentioned_or(server_prefixes[0])(self, message)
-
-    def run(self: "Bot"):
-        super().run(self.config["token"])
-
-    @cache(key="fetch_message:{message_id}", ttl=300)
-    async def fetch_message(
-        self: "Bot", channel: discord.abc.GuildChannel, message_id: int
-    ):
-        if message := discord.utils.get(self.cached_messages, id=message_id):
-            return message
-        try:
-            return await channel.fetch_message(message_id)
-        except discord.HTTPException:
-            return None
-
-    async def get_reference(self: "Bot", message: discord.Message):
-        if message.reference:
-            if msg := message.reference.cached_message:
-                return msg
-            else:
-                g = self.get_guild(message.reference.guild_id)
-                if not g:
-                    return None
-                c = g.get_channel(message.reference.channel_id)
-                if not c:
-                    return None
-                return await self.fetch_message(c, message.reference.message_id)
-        return None
-
-    async def get_message(
-        self: "Bot", argument: Union[Context, str], argument2: Optional[str] = None
-    ) -> Optional[Message]:
-        if isinstance(argument, Context):
-            if argument2:
-                if "channels/" in argument2:
-                    Link = MessageLink.from_link(argument2)
-                    return await Link.fetch(self)
-                else:
-                    try:
-                        message_id = int(argument2)
-                        return await self.fetch_message(argument.channel, message_id)
-                    except Exception:
-                        pass
-                return await self.fetch_message(argument.channel, argument2)
-            else:
-                if reference := await self.get_reference(argument.message):
-                    return reference
-        else:
-            if "channels/" in argument:
-                Link = MessageLink.from_link(argument)
-                return await Link.fetch(self)
-        return None
 
     def get_command_dict(self: "Bot") -> list:
         if self.command_dict:
@@ -610,19 +662,20 @@ load_dotenv(verbose = True)"""
     async def get_context(self: "Bot", message: Message, *, cls=Context):
         context = await super().get_context(message, cls=cls)
         if not self.filled and self.is_ready():
-            await self._fill(context)
             self.filled = True
         return context
 
     async def on_message(self: "Bot", message: Message):
-        if (
-            not (message.author.bot)
-            and (message.channel.permissions_for(message.guild.me).send_messages)
-            and (message.guild)
-            and self.is_ready()
-        ):
+        # Ignore messages from bots and DMs
+        if message.author.bot or not message.guild:
+            return
+            
+        # Check if the bot is ready and has permission to send messages in the channel
+        if self.is_ready() and message.channel.permissions_for(message.guild.me).send_messages:
             ctx = await self.get_context(message)
             self.dispatch("context", ctx)
+            
+            # Check if user is silenced
             if await self.db.fetchrow(
                 """SELECT * FROM silenced WHERE guild_id = $1 AND user_id = $2""",
                 ctx.guild.id,
@@ -630,6 +683,7 @@ load_dotenv(verbose = True)"""
             ):
                 await message.delete()
                 return
+                
             if not ctx.valid:
                 self.dispatch("valid_message", ctx)
                 if message.content.lower().startswith(self.user.name.lower()):
@@ -639,17 +693,6 @@ load_dotenv(verbose = True)"""
                     ctx.guild.id,
                 ):
                     self.dispatch("media_repost", ctx)  # repost(self, message)
-            self.dispatch("afk_check", ctx)
-            if message.mentions_bot(strict=True):
-                if (
-                    await self.object_cache.ratelimited(
-                        f"prefix_pull:{ctx.guild.id}", 1, 5
-                    )
-                    != 0
-                ):
-                    return await ctx.normal(
-                        f"Guild Prefix is `{await ctx.display_prefix()}`"
-                    )
         await self.process_commands(message)
 
     async def on_message_edit(self: "Bot", before: Message, after: Message):
@@ -714,3 +757,85 @@ load_dotenv(verbose = True)"""
                     "member_boost",
                     member,
                 )
+
+    def run(self: "Bot"):
+        """Run the bot with the token from config."""
+        logger.info("Starting bot...")
+        
+        async def runner():
+            try:
+                logger.info("Connecting to Discord...")
+                await self.start(self.config["token"])
+            except discord.LoginFailure:
+                logger.critical("Failed to login - invalid token provided")
+                raise
+            except Exception as e:
+                logger.critical(f"Unexpected error: {e}")
+                logger.exception(e)
+                raise
+            finally:
+                if not self.is_closed():
+                    await self.close()
+        
+        try:
+            logger.info("Starting event loop...")
+            import asyncio
+            asyncio.run(runner())
+        except KeyboardInterrupt:
+            logger.info("Received signal to terminate bot")
+        except Exception as e:
+            logger.critical(f"Fatal error in main loop: {e}")
+            logger.exception(e)
+            raise
+        finally:
+            logger.info("Cleaning up...")
+            logger.info("Bot has shut down")
+
+    @cache(key="fetch_message:{message_id}", ttl=300)
+    async def fetch_message(
+        self: "Bot", channel: discord.abc.GuildChannel, message_id: int
+    ):
+        if message := discord.utils.get(self.cached_messages, id=message_id):
+            return message
+        try:
+            return await channel.fetch_message(message_id)
+        except discord.HTTPException:
+            return None
+
+    async def get_reference(self: "Bot", message: discord.Message):
+        if message.reference:
+            if msg := message.reference.cached_message:
+                return msg
+            else:
+                g = self.get_guild(message.reference.guild_id)
+                if not g:
+                    return None
+                c = g.get_channel(message.reference.channel_id)
+                if not c:
+                    return None
+                return await self.fetch_message(c, message.reference.message_id)
+        return None
+
+    async def get_message(
+        self: "Bot", argument: Union[Context, str], argument2: Optional[str] = None
+    ) -> Optional[Message]:
+        if isinstance(argument, Context):
+            if argument2:
+                if "channels/" in argument2:
+                    Link = MessageLink.from_link(argument2)
+                    return await Link.fetch(self)
+                else:
+                    try:
+                        message_id = int(argument2)
+                        return await self.fetch_message(argument.channel, message_id)
+                    except Exception:
+                        pass
+                return await self.fetch_message(argument.channel, argument2)
+            else:
+                if reference := await self.get_reference(argument.message):
+                    return reference
+        else:
+            if "channels/" in argument:
+                Link = MessageLink.from_link(argument)
+                return await Link.fetch(self)
+        return None

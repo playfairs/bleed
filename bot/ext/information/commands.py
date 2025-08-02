@@ -1733,10 +1733,11 @@ class Commands(Cog):
         def to_content(repo: Repo) -> str:
             return f"[`:star: {repo.stargazers_count}, {repo.created_at.strftime('%m/%d/%Y')} {repo.name}`]({repo.svn_url})"
 
+        repo_list = '\n'.join(to_content(repo) for repo in repos[:3])
         embed.add_field(name="Information", value=f"{data.bio}{location}", inline=False)
         embed.add_field(
             name=f"Repositories ({len(data.repos)})",
-            value=f"{'\n'.join(to_content(f) for f in repos[:3])}",
+            value=repo_list,
             inline=False,
         )
         return await ctx.send(embed=embed)

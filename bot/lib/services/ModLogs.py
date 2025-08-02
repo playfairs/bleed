@@ -1,15 +1,53 @@
 from discord import Embed, Message, Member, User, Object, AuditLogEntry, utils, VoiceState, Role, abc  # type: ignore # type: ignore
 from datetime import datetime
 from enum import Enum, auto
-from discord.ext.commands import Context
-from typing import Union, Optional, Any
+from discord.ext.commands import Context, CooldownMapping
+from typing import Union, Optional, Any, Callable, TypeVar, Awaitable
 from loguru import logger
-try:
-    from rival_tools import ratelimit, lock  # type: ignore
-except:
-    from tools import ratelimit, lock
-import discord
-from lib.classes.builtins import catch 
+from functools import wraps
+import asyncio
+
+# Create a proper decorator for rate limiting
+def ratelimiter(bucket: str, key: str, rate: int, per: float):
+    """
+    A decorator that applies rate limiting to a function.
+    
+    Args:
+        bucket: The name of the bucket to use for rate limiting
+        key: The key to use for rate limiting (can include format placeholders)
+        rate: Number of allowed requests
+        per: Time window in seconds
+    """
+    cooldown = CooldownMapping.from_cooldown(rate, per, lambda k: k)
+    
+    def decorator(func):
+        @wraps(func)
+        async def wrapper(self, *args, **kwargs):
+            # Get the context or message object (first argument after self)
+            ctx_or_msg = args[0] if args else None
+            
+            # Format the key with the context if needed
+            formatted_key = key
+            if hasattr(ctx_or_msg, 'guild') and hasattr(ctx_or_msg.guild, 'id'):
+                formatted_key = key.format(c=ctx_or_msg)
+                
+            # Check rate limit
+            bucket = cooldown.get_bucket(formatted_key)
+            retry_after = bucket.update_rate_limit()
+            
+            if retry_after:
+                # Rate limit exceeded
+                return None
+                
+            # Call the original function
+            return await func(self, *args, **kwargs)
+            
+        return wrapper
+    
+    return decorator
+
+from ..patch.context import Cache
+
 change_type = Union[Role, AuditLogEntry]
 
 
@@ -131,6 +169,45 @@ class EventType(Enum):
     image_mute = auto
     image_unmute = auto()
 
+
+# Create a proper decorator for rate limiting
+def ratelimiter(bucket: str, key: str, rate: int, per: float):
+    """
+    A decorator that applies rate limiting to a function.
+    
+    Args:
+        bucket: The name of the bucket to use for rate limiting
+        key: The key to use for rate limiting (can include format placeholders)
+        rate: Number of allowed requests
+        per: Time window in seconds
+    """
+    cooldown = CooldownMapping.from_cooldown(rate, per, lambda k: k)
+    
+    def decorator(func):
+        @wraps(func)
+        async def wrapper(self, *args, **kwargs):
+            # Get the context or message object (first argument after self)
+            ctx_or_msg = args[0] if args else None
+            
+            # Format the key with the context if needed
+            formatted_key = key
+            if hasattr(ctx_or_msg, 'guild') and hasattr(ctx_or_msg.guild, 'id'):
+                formatted_key = key.format(c=ctx_or_msg)
+                
+            # Check rate limit
+            bucket = cooldown.get_bucket(formatted_key)
+            retry_after = bucket.update_rate_limit()
+            
+            if retry_after:
+                # Rate limit exceeded
+                return None
+                
+            # Call the original function
+            return await func(self, *args, **kwargs)
+            
+        return wrapper
+    
+    return decorator
 
 
 class Handler:
@@ -419,7 +496,7 @@ class Handler:
                     else:
                         if ctx.user == self.bot.user:
                             return None
-                        reason = ctx.reason or "no reason provided"
+                        reason = ctx.reason
                         title = "Member Banned"
                         description = f"**Moderator:** {ctx.user.mention}\n> **User Punished:** {await self.check_user(ctx.target)}\n> **Punishment:** `member banned`\n> **Reason:** {reason}\n> **When:** {ts}"
                 else:
@@ -613,7 +690,7 @@ class Handler:
         else:
             return None
 
-    @lock("logs:{c.guild.id}")
+    @ratelimiter("modlogs", "{c.guild.id}", 5, 60)  # 5 requests per 60 seconds
     async def do_log(self, c: Union[Context, Message, AuditLogEntry, Member], **kwargs):
         with catch():
             if len(kwargs) > 0:
@@ -630,7 +707,7 @@ class Handler:
             #                return
             if embed:
 
-                @ratelimit("modlogs:{c.guild.id}", 3, 5, True)
+                @ratelimiter("modlogs_messages", "{c.guild.id}", 3, 5)  # 3 requests per 5 seconds
                 async def do_message(
                     c: Union[Context, Message, AuditLogEntry, Member], embed: Embed
                 ):
