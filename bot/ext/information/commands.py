@@ -8,12 +8,15 @@ from discord.ext.commands import (
     CommandError,
     CommandConverter,
     Converter,
-    Timezone,
     guild_only,
     has_permissions,
     hybrid_command,
     param,
 )
+from datetime import datetime, timezone, timedelta
+import pytz  # For timezone handling
+from typing import Optional, Union, Literal, List, Dict, Any, Type, TypeVar
+
 from discord import (
     Client,
     Embed,
@@ -34,12 +37,10 @@ from discord import (
     Guild,
 )
 from discord.ui import View, Button
-from datetime import datetime
 from aiohttp import ContentTypeError
 from ..lastfm.commands import plural, shorten
 from munch import DefaultMunch
 from io import BytesIO
-from typing import Type, Optional, Union, Literal, List
 from lib.classes.color import get_dominant_color, color_info
 from lib.classes.lastfm import api_request
 from discord.utils import escape_markdown as escape_md, format_dt
@@ -69,7 +70,6 @@ from humanize import intcomma
 import aiohttp
 import arrow
 import random
-import pytz
 import re
 
 
@@ -1771,7 +1771,7 @@ class Commands(Cog):
             raise CommandError("**SnapChat's API** returned `500` - try again later")
         profile = user.userProfile.publicProfileInfo
         embed = Embed(
-            title=f"{profile.title} (@{profile.username}) on Snapchat",
+            title=f"{profile.title} (@{username}) on Snapchat",
             url=f"https://www.snapchat.com/add/{user.username}",
             color=Color.from_str("#fbfb04"),
         )
@@ -1821,13 +1821,14 @@ class Commands(Cog):
     @timezone.command(
         name="set", description="Set your timezone", example=",timezone set Los Angeles"
     )
-    async def timezone_set(self, ctx: Context, *, location: Timezone):
+    async def timezone_set(self, ctx: Context, *, location: str):
         """Set your timezone."""
+        tz = pytz.timezone(location)
         await self.bot.db.execute(
             "INSERT INTO timezones (user_id, timezone) VALUES ($1, $2) ON CONFLICT(user_id) DO UPDATE SET timezone = excluded.timezone"
             "",
             ctx.author.id,
-            location,
+            tz,
         )
         return await ctx.success(f"Your **timezone** has been set to `{location}`")
 
