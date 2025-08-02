@@ -15,6 +15,7 @@ builtins.hyperlink = hyperlink
 builtins.ObjectTransformer = ObjectTransformer
 builtins.human_join = human_join
 builtins.asDict = asDict
+builtins.color_info = color_info
 _float = get_referents(float.__dict__)[0]
 _str = get_referents(str.__dict__)[0]
 _int = get_referents(int.__dict__)[0]

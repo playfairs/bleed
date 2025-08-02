@@ -7,9 +7,8 @@ import asyncio
 import lxml
 import psutil
 import socket
-from tools import timeit
-from itertools import chain
-from discord.http import iteration
+from timeit import timeit
+from itertools import chain, cycle
 from bs4 import BeautifulSoup
 from ..models.Brave import BraveSearchResponse, BraveImageSearchResponse
 import random
@@ -69,7 +68,7 @@ def get_ips():
         if addr.family == socket.AF_INET6
     ]
     if len(ips) > 0:
-        return iteration(ips)
+        return cycle(ips)
     else:
         return None
 
@@ -172,9 +171,7 @@ class BraveService(BaseService):
                         r for r in result_description if r != " "
                     ).replace("   ", " ")
 
-                    fav_icon = element.xpath(
-                        ".//img[contains(@class, 'favicon')]/@src"
-                    )[0]
+                    fav_icon = element.xpath(".//img[contains(@class, 'favicon')]/@src")[0]
                     site_name = element.xpath(
                         ".//div[contains(@class, 'sitename')]/text()"
                     )[0]

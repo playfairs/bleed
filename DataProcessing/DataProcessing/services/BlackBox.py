@@ -1,6 +1,6 @@
 from redis.asyncio import Redis
 from .Base import BaseService, cache
-from tools import timeit
+from timeit import timeit
 from typing import Optional
 from aiohttp import ClientSession
 from playwright.async_api import async_playwright, Request, Response

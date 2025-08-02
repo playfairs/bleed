@@ -1,6 +1,6 @@
 from discord.ext import commands
 from discord.ext.commands import Context
-from discord import Color, Member, User
+from discord import Color, Member, User, Embed
 import aiohttp
 from loguru import logger
 from typing import Union, Optional
@@ -223,3 +223,53 @@ class ColorConverter(commands.Converter):
 
 
 commands.ColourConverter.convert = ColorConverter.convert
+
+
+async def color_info(ctx: Context, color_input: str) -> None:
+    """
+    Display information about a color.
+    
+    Args:
+        ctx: The context of the command.
+        color_input: The color input, which can be a color name or hex code.
+    """
+    # Try to get color from name or hex
+    color_hex = COLORS.get(color_input.lower(), color_input)
+    
+    # Validate hex format
+    if not color_hex.startswith('#'):
+        color_hex = f"#{color_hex}"
+    
+    # Remove any non-hex characters
+    import re
+    hex_digits = re.sub(r'[^0-9a-fA-F]', '', color_hex)
+    
+    # Validate hex length
+    if len(hex_digits) not in (3, 6):
+        return await ctx.error("Invalid color format. Please use a valid color name or hex code (e.g., #FF5733 or red).")
+    
+    # Convert to 6-digit hex if needed
+    if len(hex_digits) == 3:
+        hex_digits = ''.join(c * 2 for c in hex_digits)
+    
+    color_hex = f"#{hex_digits}"
+    
+    # Convert hex to RGB
+    r = int(hex_digits[0:2], 16)
+    g = int(hex_digits[2:4], 16)
+    b = int(hex_digits[4:6], 16)
+    
+    # Create embed
+    embed = Embed(
+        title=f"Color Information: {color_hex.upper()}",
+        color=int(hex_digits, 16)
+    )
+    
+    # Add color information
+    embed.add_field(name="HEX", value=color_hex.upper(), inline=True)
+    embed.add_field(name="RGB", value=f"{r}, {g}, {b}", inline=True)
+    
+    # Add color preview
+    embed.set_thumbnail(url=f"https://singlecolorimage.com/get/{hex_digits}/100x100")
+    
+    await ctx.send(embed=embed)

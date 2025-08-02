@@ -1,7 +1,6 @@
 from playwright.async_api import async_playwright
 from aiohttp import ClientSession
 from io import BytesIO
-from tools import lock
 from typing import Optional, Any, Union, List, Dict
 from .nsfw import ImageModeration
 from discord import File

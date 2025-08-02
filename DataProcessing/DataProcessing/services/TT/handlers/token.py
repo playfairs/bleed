@@ -71,8 +71,11 @@ class TokenManager:
             "Content-Type": "application/json",
         }
 
-        transport = httpx.HTTPTransport(retries=5)
-        with httpx.Client(transport=transport, proxies=cls.proxies) as client:
+        transport = httpx.HTTPTransport(
+            retries=5,
+            proxy=cls.proxies.get("http") or cls.proxies.get("https")  # Use the first available proxy
+        )
+        with httpx.Client(transport=transport) as client:
             try:
                 response = client.post(
                     cls.token_conf["url"], headers=headers, content=payload
@@ -488,7 +491,9 @@ class AwemeIdFetcher:
             aweme_id = video_match.group(1) if video_match else photo_match.group(1)
 
             if aweme_id is None:
-                raise RuntimeError("yaya aweme_id ya photo_id yaya，{0}".format(url))
+                raise RuntimeError(
+                    "yaya aweme_id ya photo_id yaya，{0}".format(url)
+                )
 
             return aweme_id
 
